@@ -31,6 +31,8 @@ class SimpleEventConsumer extends Actor with ActorLogging {
   val topic = config.getString("kafka.topics.events.name")
   val clientId = config.getString("kafka.topics.events.client-id")
 
+  log.info("zookeepers:[{}], topic:[{}], clientId:[{}]", zookeepers, topic, clientId)
+
   val zkClient = createZkClient()
   val brokers = ZkUtils.getAllBrokersInCluster(zkClient)
   var partitionAndLeader = findLeadersForEachPartition
@@ -94,16 +96,16 @@ class SimpleEventConsumer extends Actor with ActorLogging {
   }
 
   private def findLeadersForEachPartition: Map[Int, Broker] = {
-    ZkUtils.getPartitionsForTopics(zkClient, Seq(topic)).getOrElse(topic, None) match {
-      case partitions: Seq[Int] =>
+    ZkUtils.getPartitionsForTopics(zkClient, Seq(topic)).get(topic) match {
+      case Some(partitions) =>
         partitions.map(p => (p, findLeaderForPartition(p))).toMap
       case None => Map.empty[Int, Broker]
     }
   }
 
   private def findLeaderForPartition(partition: Int): Broker = {
-    ZkUtils.getLeaderForPartition(zkClient, topic, partition).getOrElse(None) match {
-      case leader: Int =>
+    ZkUtils.getLeaderForPartition(zkClient, topic, partition) match {
+      case Some(leader) =>
         brokers.find(b => b.id == leader).orNull
       case None => null
     }
