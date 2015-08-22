@@ -13,7 +13,7 @@ import org.I0Itec.zkclient.serialize.ZkSerializer
 import scala.collection.mutable
 
 /**
- * kafka SimpleConsumer sample
+ * kafka SimpleConsumer example
  * - message를 queue에 넣어두고 조금씩 꺼낸다.
  *
  * 1. broker 중에서 리더를 찾는다.
@@ -98,16 +98,20 @@ class SimpleEventConsumer extends Actor with ActorLogging {
   private def findLeadersForEachPartition: Map[Int, Broker] = {
     ZkUtils.getPartitionsForTopics(zkClient, Seq(topic)).get(topic) match {
       case Some(partitions) =>
-        partitions.map(p => (p, findLeaderForPartition(p))).toMap
+        partitions
+          .map(p => (p, findLeaderForPartition(p)))
+          .filter(_._2.isDefined)
+          .map { case (p, ob) => (p, ob.get) }
+          .toMap
       case None => Map.empty[Int, Broker]
     }
   }
 
-  private def findLeaderForPartition(partition: Int): Broker = {
+  private def findLeaderForPartition(partition: Int): Option[Broker] = {
     ZkUtils.getLeaderForPartition(zkClient, topic, partition) match {
       case Some(leader) =>
-        brokers.find(b => b.id == leader).orNull
-      case None => null
+        brokers.find(b => b.id == leader)
+      case None => None
     }
   }
 
