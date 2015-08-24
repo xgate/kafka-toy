@@ -6,7 +6,7 @@ import kafka.cluster.Broker
 import kafka.common.{ErrorMapping, TopicAndPartition}
 import kafka.consumer.SimpleConsumer
 import kafka.message.ByteBufferMessageSet
-import kafka.utils.{ZKStringSerializer, ZkUtils}
+import kafka.utils.{Utils, ZKStringSerializer, ZkUtils}
 import org.I0Itec.zkclient.ZkClient
 import org.I0Itec.zkclient.serialize.ZkSerializer
 
@@ -206,9 +206,7 @@ class SimpleEventConsumer extends Actor with ActorLogging {
   private def extractAsReadableMessages(messageSet: ByteBufferMessageSet): List[String] = {
     messageSet.map {
       mo =>
-        val dest = new Array[Byte](mo.message.payload.limit())
-        mo.message.payload.get(dest)
-        new Predef.String(dest, "UTF-8")
+        new String(Utils.readBytes(mo.message.payload), "UTF-8")
     }.toList
   }
 }
