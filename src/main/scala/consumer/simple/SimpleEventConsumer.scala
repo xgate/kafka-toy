@@ -10,6 +10,7 @@ import kafka.utils.{Utils, ZKStringSerializer, ZkUtils}
 import org.I0Itec.zkclient.ZkClient
 import org.I0Itec.zkclient.serialize.ZkSerializer
 
+import scala.annotation.tailrec
 import scala.collection.mutable
 
 /**
@@ -79,20 +80,23 @@ class SimpleEventConsumer extends Actor with ActorLogging {
 
   private def fetch(fetchSize: Int): List[String] = {
 
-    def fetchFromQueue(remaining: Int, results: List[String]): List[String] = {
-      if (remaining <= 0) return results
-      messageQue.nonEmpty match {
-        case true =>
-          fetchFromQueue(remaining - 1, results :+ messageQue.dequeue())
-        case false =>
-          log.info("required more messages. try fetch and enqueue ...")
-          fetchMessagesAndEnqueue()
-          if (messageQue.isEmpty) results
-          else fetchFromQueue(remaining, results)
+    @tailrec
+    def fetchFromQueue(results: List[String] = Nil): List[String] = {
+      if (results.size >= fetchSize) results
+      else {
+        messageQue.nonEmpty match {
+          case true =>
+            fetchFromQueue(results :+ messageQue.dequeue())
+          case false =>
+            log.info("required more messages. try fetch and enqueue ...")
+            fetchMessagesAndEnqueue()
+            if (messageQue.isEmpty) results
+            else fetchFromQueue(results)
+        }
       }
     }
 
-    fetchFromQueue(fetchSize, List.empty[String])
+    fetchFromQueue()
   }
 
   private def findLeadersForEachPartition: Map[Int, Broker] = {
@@ -133,7 +137,10 @@ class SimpleEventConsumer extends Actor with ActorLogging {
 
     consumer.close()
 
-    if (partitionErrorAndOffsets.error == ErrorMapping.NoError) partitionErrorAndOffsets.offsets(0) else 0
+    if (partitionErrorAndOffsets.error == ErrorMapping.NoError)
+      partitionErrorAndOffsets.offsets.head
+    else
+      throw new RuntimeException("failed to fetch offset ...")
   }
 
   private def createConsumer(host: String, port: Int): SimpleConsumer = {
@@ -152,6 +159,7 @@ class SimpleEventConsumer extends Actor with ActorLogging {
   private def fetchMessages(partition: Int, broker: Broker): List[String] = {
 
     val consumer = createConsumer(broker.host, broker.port)
+
     val fetchRequest =
       new FetchRequestBuilder()
         .clientId(clientId)
@@ -174,25 +182,15 @@ class SimpleEventConsumer extends Actor with ActorLogging {
   }
 
   private def handleMessageFetchError(errorCode: Short, partition: Int, broker: Broker): List[String] = {
-
-    def tryAdjustOffset: List[String] = {
-      fetchOffsetForPartition(partition, broker) match {
-        case 0 =>
-          log.error("invalid offset for partition <{}> ...", partition)
-          List.empty[String]
-        case offset@_ =>
-          partitionAndOffset = partitionAndOffset + (partition -> offset)
-          fetchMessages(partition, broker)
-      }
-    }
-
     errorCode match {
       case ErrorMapping.OffsetOutOfRangeCode =>
         log.warning("out of range error...")
-        tryAdjustOffset
+        val offset = fetchOffsetForPartition(partition, broker)
+        partitionAndOffset = partitionAndOffset + (partition -> offset)
+        fetchMessages(partition, broker)
       case code@_ =>
         log.error("it is not out of range error... error code is <{}>...", code)
-        List.empty[String]
+        throw new RuntimeException("uncontrollable error occurred...")
     }
   }
 
@@ -205,8 +203,7 @@ class SimpleEventConsumer extends Actor with ActorLogging {
 
   private def extractAsReadableMessages(messageSet: ByteBufferMessageSet): List[String] = {
     messageSet.map {
-      mo =>
-        new String(Utils.readBytes(mo.message.payload), "UTF-8")
+      mo => new String(Utils.readBytes(mo.message.payload), "UTF-8")
     }.toList
   }
 }
