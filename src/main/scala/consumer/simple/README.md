@@ -1,4 +1,4 @@
-SimpleConsumer Sample
+SimpleConsumer Example
 =================
 
 ### Overview ###
